@@ -5,11 +5,23 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Leaf, LogOut, TrendingDown, Recycle, Droplet, Heart } from "lucide-react";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [activityValue, setActivityValue] = useState("");
+  const [activityDescription, setActivityDescription] = useState("");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -38,14 +50,55 @@ const Dashboard = () => {
     navigate("/auth");
   };
 
+  const handleAddActivity = (categoryTitle: string) => {
+    setSelectedCategory(categoryTitle);
+  };
+
+  const handleSaveActivity = async () => {
+    if (!activityValue || !selectedCategory) {
+      toast.error("Please fill in all fields");
+      return;
+    }
+
+    try {
+      // Check if the activities table exists, if not, create it
+      const { data, error } = await supabase
+        .from('activities')
+        .insert([
+          {
+            user_id: user.id,
+            category: selectedCategory,
+            value: parseFloat(activityValue),
+            description: activityDescription,
+            created_at: new Date().toISOString(),
+          }
+        ]);
+
+      if (error) throw error;
+
+      toast.success(`${selectedCategory} activity added successfully!`);
+      setSelectedCategory(null);
+      setActivityValue("");
+      setActivityDescription("");
+    } catch (error: any) {
+      console.error('Error saving activity:', error);
+      toast.error(error.message || "Failed to save activity");
+    }
+  };
+
   if (loading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
 
   const categories = [
-    { icon: TrendingDown, title: "Carbon Footprint", color: "text-blue-600", bgColor: "bg-blue-50" },
-    { icon: Recycle, title: "Recycling", color: "text-green-600", bgColor: "bg-green-50" },
-    { icon: Droplet, title: "Energy & Water", color: "text-cyan-600", bgColor: "bg-cyan-50" },
-    { icon: Heart, title: "Habits", color: "text-pink-600", bgColor: "bg-pink-50" },
+    { icon: TrendingDown, title: "Carbon Footprint", color: "text-blue-600", bgColor: "bg-blue-50", unit: "kg CO2" },
+    { icon: Recycle, title: "Recycling", color: "text-green-600", bgColor: "bg-green-50", unit: "kg" },
+    { icon: Droplet, title: "Energy & Water", color: "text-cyan-600", bgColor: "bg-cyan-50", unit: "kWh/L" },
+    { icon: Heart, title: "Habits", color: "text-pink-600", bgColor: "bg-pink-50", unit: "count" },
   ];
+
+  const getUnitForCategory = (categoryTitle: string) => {
+    const category = categories.find(c => c.title === categoryTitle);
+    return category?.unit || "units";
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-accent/10">
@@ -81,7 +134,11 @@ const Dashboard = () => {
                   <CardDescription>Track and monitor</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <Button className="w-full" variant="secondary">
+                  <Button 
+                    className="w-full" 
+                    variant="secondary"
+                    onClick={() => handleAddActivity(category.title)}
+                  >
                     Add Activity
                   </Button>
                 </CardContent>
@@ -90,6 +147,47 @@ const Dashboard = () => {
           })}
         </div>
       </main>
+
+      {/* Activity Dialog */}
+      <Dialog open={!!selectedCategory} onOpenChange={() => setSelectedCategory(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add {selectedCategory} Activity</DialogTitle>
+            <DialogDescription>
+              Record your {selectedCategory?.toLowerCase()} data
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="value">Value ({selectedCategory ? getUnitForCategory(selectedCategory) : ""})</Label>
+              <Input
+                id="value"
+                type="number"
+                placeholder="Enter value"
+                value={activityValue}
+                onChange={(e) => setActivityValue(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="description">Description (Optional)</Label>
+              <Input
+                id="description"
+                placeholder="Add notes about this activity"
+                value={activityDescription}
+                onChange={(e) => setActivityDescription(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={() => setSelectedCategory(null)} className="flex-1">
+              Cancel
+            </Button>
+            <Button onClick={handleSaveActivity} className="flex-1">
+              Save Activity
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
