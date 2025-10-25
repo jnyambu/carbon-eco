@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Leaf, LogOut, TrendingDown, Recycle, Droplet, Heart } from "lucide-react";
+import { Leaf, LogOut, TrendingDown, Recycle, Droplet, Heart, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -15,6 +15,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+interface Activity {
+  id: string;
+  category: string;
+  value: number;
+  description: string;
+  created_at: string;
+}
+
 const Dashboard = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
@@ -22,6 +30,8 @@ const Dashboard = () => {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [activityValue, setActivityValue] = useState("");
   const [activityDescription, setActivityDescription] = useState("");
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [summary, setSummary] = useState<Record<string, number>>({});
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -30,6 +40,7 @@ const Dashboard = () => {
       } else {
         setUser(session.user);
         setLoading(false);
+        fetchActivities(session.user.id);
       }
     });
 
@@ -38,11 +49,40 @@ const Dashboard = () => {
         navigate("/auth");
       } else {
         setUser(session.user);
+        fetchActivities(session.user.id);
       }
     });
 
     return () => subscription.unsubscribe();
   }, [navigate]);
+
+  const fetchActivities = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('activities')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      setActivities(data || []);
+      calculateSummary(data || []);
+    } catch (error: any) {
+      console.error('Error fetching activities:', error);
+    }
+  };
+
+  const calculateSummary = (activitiesData: Activity[]) => {
+    const summaryData: Record<string, number> = {};
+    activitiesData.forEach((activity) => {
+      if (!summaryData[activity.category]) {
+        summaryData[activity.category] = 0;
+      }
+      summaryData[activity.category] += activity.value;
+    });
+    setSummary(summaryData);
+  };
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -61,8 +101,7 @@ const Dashboard = () => {
     }
 
     try {
-      // Check if the activities table exists, if not, create it
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('activities')
         .insert([
           {
@@ -80,9 +119,27 @@ const Dashboard = () => {
       setSelectedCategory(null);
       setActivityValue("");
       setActivityDescription("");
+      fetchActivities(user.id);
     } catch (error: any) {
       console.error('Error saving activity:', error);
       toast.error(error.message || "Failed to save activity");
+    }
+  };
+
+  const handleDeleteActivity = async (activityId: string) => {
+    try {
+      const { error } = await supabase
+        .from('activities')
+        .delete()
+        .eq('id', activityId);
+
+      if (error) throw error;
+
+      toast.success("Activity deleted successfully");
+      fetchActivities(user.id);
+    } catch (error: any) {
+      console.error('Error deleting activity:', error);
+      toast.error("Failed to delete activity");
     }
   };
 
@@ -98,6 +155,22 @@ const Dashboard = () => {
   const getUnitForCategory = (categoryTitle: string) => {
     const category = categories.find(c => c.title === categoryTitle);
     return category?.unit || "units";
+  };
+
+  const getCategoryIcon = (categoryTitle: string) => {
+    const category = categories.find(c => c.title === categoryTitle);
+    return category?.icon || Leaf;
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   return (
@@ -121,9 +194,11 @@ const Dashboard = () => {
           <p className="text-muted-foreground">Track your sustainability journey</p>
         </div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Summary Cards */}
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {categories.map((category) => {
             const Icon = category.icon;
+            const total = summary[category.title] || 0;
             return (
               <Card key={category.title} className="hover:shadow-lg transition-shadow">
                 <CardHeader>
@@ -131,7 +206,9 @@ const Dashboard = () => {
                     <Icon className={`h-6 w-6 ${category.color}`} />
                   </div>
                   <CardTitle>{category.title}</CardTitle>
-                  <CardDescription>Track and monitor</CardDescription>
+                  <CardDescription className="text-2xl font-bold mt-2">
+                    {total.toFixed(2)} {category.unit}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <Button 
@@ -146,6 +223,58 @@ const Dashboard = () => {
             );
           })}
         </div>
+
+        {/* Recent Activities */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Activities</CardTitle>
+            <CardDescription>Your latest sustainability tracking</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {activities.length === 0 ? (
+              <p className="text-center text-muted-foreground py-8">
+                No activities yet. Start tracking by adding your first activity!
+              </p>
+            ) : (
+              <div className="space-y-4">
+                {activities.map((activity) => {
+                  const Icon = getCategoryIcon(activity.category);
+                  const category = categories.find(c => c.title === activity.category);
+                  return (
+                    <div 
+                      key={activity.id} 
+                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-secondary/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={`${category?.bgColor} w-10 h-10 rounded-full flex items-center justify-center`}>
+                          <Icon className={`h-5 w-5 ${category?.color}`} />
+                        </div>
+                        <div>
+                          <h4 className="font-semibold">{activity.category}</h4>
+                          <p className="text-sm text-muted-foreground">
+                            {activity.value} {getUnitForCategory(activity.category)}
+                            {activity.description && ` • ${activity.description}`}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {formatDate(activity.created_at)}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDeleteActivity(activity.id)}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </main>
 
       {/* Activity Dialog */}
